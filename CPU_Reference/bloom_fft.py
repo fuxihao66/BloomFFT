@@ -1,10 +1,13 @@
 # only support 1024 2048
-import cv2
 import math
 import numpy as np
+import os
+from tqdm import tqdm
+
+os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
+import cv2
 def PadToPowOfTwo(size):
     return pow(2, math.ceil(math.log2(size)))
-
 # tensor core步骤之前最先准备的序列长度
 # 1. 16*8/16*16 这样一次tensor core merge就结束？
 # 2. 16 tensor core merge之后还要再一次cuda core merge？
@@ -30,13 +33,13 @@ def ComplexSub(input0, input1):
 
     return input0 - input1
 def ComplexMul(input0, input1):
-    return np.array([input0[0]*input1[0]-input0[1]*input1[1], input0[0]*input1[1]+input0[1]*input1[0]], dtype=np.float32)
+    return np.array([input0[0]*input1[0]-input0[1]*input1[1], input0[0]*input1[1]+input0[1]*input1[0]], dtype=np.float64)
 def Radix2FFT(input):
-    result = np.zeros(input.shape, dtype=np.float32)
+    result = np.zeros(input.shape, dtype=np.float64)
 
     i= 0
-    Twiddle0 = np.array([math.cos(-2.*math.pi*i/(2.)), math.sin(-2.*math.pi*i/(2.))], dtype=np.float32)
-    Twiddle1 = np.array([math.cos(-2.*math.pi*(i+1)/(2.)), math.sin(-2.*math.pi*(i+1)/(2.))], dtype=np.float32)
+    Twiddle0 = np.array([math.cos(-2.*math.pi*i/(2.)), math.sin(-2.*math.pi*i/(2.))], dtype=np.float64)
+    Twiddle1 = np.array([math.cos(-2.*math.pi*(i+1)/(2.)), math.sin(-2.*math.pi*(i+1)/(2.))], dtype=np.float64)
     result[i] = ComplexAdd(input[0], ComplexMul(input[1], Twiddle0))
     result[i + 1] = ComplexAdd(input[0], ComplexMul(input[1], Twiddle1))# TODO: USE BUTTERFLY
     return result
@@ -46,10 +49,10 @@ def Radix4FFT(input):
     input1 = input[1::2] # even
     result0 = Radix2FFT(input0)
     result1 = Radix2FFT(input1)
-    result = np.zeros(input.shape, dtype=np.float32)
+    result = np.zeros(input.shape, dtype=np.float64)
 
     for i in range(2):
-        Twiddle = np.array([math.cos(-2.*math.pi*i/(4.)), math.sin(-2.*math.pi*i/(4.))], dtype=np.float32)
+        Twiddle = np.array([math.cos(-2.*math.pi*i/(4.)), math.sin(-2.*math.pi*i/(4.))], dtype=np.float64)
         result[i] = ComplexAdd(result0[i], ComplexMul(result1[i], Twiddle))
         result[i + 2] = ComplexSub(result0[i], ComplexMul(result1[i], Twiddle))
     return result
@@ -59,9 +62,9 @@ def Radix8FFT(input):
     result0 = Radix4FFT(input0)
     result1 = Radix4FFT(input1)
     
-    result = np.zeros(input.shape, dtype=np.float32)
+    result = np.zeros(input.shape, dtype=np.float64)
     for i in range(4):
-        Twiddle = np.array([math.cos(-2.*math.pi*i/(8.)), math.sin(-2.*math.pi*i/(8.))], dtype=np.float32)
+        Twiddle = np.array([math.cos(-2.*math.pi*i/(8.)), math.sin(-2.*math.pi*i/(8.))], dtype=np.float64)
         result[i] = ComplexAdd(result0[i], ComplexMul(result1[i], Twiddle))
         result[i + 4] = ComplexSub(result0[i], ComplexMul(result1[i], Twiddle))
     return result
@@ -73,9 +76,9 @@ def Radix16FFT(input):
     result0 = Radix8FFT(input0)# even
     result1 = Radix8FFT(input1)# odd
 
-    result = np.zeros(input.shape, dtype=np.float32)
+    result = np.zeros(input.shape, dtype=np.float64)
     for i in range(8):
-        Twiddle = np.array([math.cos(-2.*math.pi*i/(16.)), math.sin(-2.*math.pi*i/(16.))], dtype=np.float32)
+        Twiddle = np.array([math.cos(-2.*math.pi*i/(16.)), math.sin(-2.*math.pi*i/(16.))], dtype=np.float64)
         result[i] = ComplexAdd(result0[i], ComplexMul(result1[i], Twiddle))
         result[i + 8] = ComplexSub(result0[i], ComplexMul(result1[i], Twiddle))
     return result
@@ -83,19 +86,22 @@ def Radix16FFT(input):
 def DFT16(input):
     # input is [16,2]
 
-    result = np.zeros(input.shape, dtype=np.float32)
+    result = np.zeros(input.shape, dtype=np.float64)
     for i in range(16):
         result[i, 0] = 0
         result[i, 1] = 0
         for j in range(16):
-            temp = ComplexMul(input[j], np.array([math.cos(-2.*math.pi*i*j/(16.)), math.sin(-2.*math.pi*i*j/(16.))], dtype=np.float32))
+            temp = ComplexMul(input[j], np.array([math.cos(-2.*math.pi*i*j/(16.)), math.sin(-2.*math.pi*i*j/(16.))], dtype=np.float64))
             result[i, 0] += temp[0]
             result[i, 1] += temp[1]
     return result
+
+# alpha is set to 1
+# padded rgbs are set to 0, alphas are set to 1
 def FFT(paddedwidth, img_row):# w, c
 
     img_width = img_row.shape[0]
-    output_frequency_row = np.zeros((paddedwidth+2, 4), dtype=np.float32)
+    output_frequency_row = np.zeros((paddedwidth+2, 4), dtype=np.float64)
 
     sub_array_num = paddedwidth // 16 // 16
 
@@ -104,11 +110,11 @@ def FFT(paddedwidth, img_row):# w, c
 
     sub_sub_array_num = paddedwidth // 16
     for i in range(sub_sub_array_num):
-        input = np.zeros((16, 2), dtype=np.float32)
+        input = np.zeros((16, 2), dtype=np.float64)
         for j in range(16):
             pixelIndex = sub_sub_array_num * j + i
             if pixelIndex >= img_width:
-                input[j] = np.zeros((2), dtype=np.float32)
+                input[j] = np.zeros((2), dtype=np.float64)
             else:
                 input[j] = img_row[pixelIndex, 0:2]
         mergeradix16_rg_inputs.append(Radix16FFT(input))
@@ -116,16 +122,17 @@ def FFT(paddedwidth, img_row):# w, c
         for j in range(16):
             pixelIndex = sub_sub_array_num * j + i
             if pixelIndex >= img_width:
-                input[j] = np.zeros((2), dtype=np.float32)
+                input[j] = np.zeros((2), dtype=np.float64)
+                input[:,1] = 1.# set alpha to 1
             else:
                 input[j] = img_row[pixelIndex, 2:4]
         mergeradix16_ba_inputs.append(Radix16FFT(input))
 
-    T_real = np.zeros((16, 16), dtype=np.float32)
-    T_imag = np.zeros((16, 16), dtype=np.float32)
+    T_real = np.zeros((16, 16), dtype=np.float64)
+    T_imag = np.zeros((16, 16), dtype=np.float64)
 
-    F_real = np.zeros((16, 16), dtype=np.float32)
-    F_imag = np.zeros((16, 16), dtype=np.float32)
+    F_real = np.zeros((16, 16), dtype=np.float64)
+    F_imag = np.zeros((16, 16), dtype=np.float64)
 
     for i in range(16):
         for j in range(16):
@@ -142,10 +149,10 @@ def FFT(paddedwidth, img_row):# w, c
 
     sub_array_list = []
     for i in range(sub_array_num):
-        X_in_rg_real = np.zeros((16, 16), dtype=np.float32)
-        X_in_rg_imag = np.zeros((16, 16), dtype=np.float32)
-        X_in_ba_real = np.zeros((16, 16), dtype=np.float32)
-        X_in_ba_imag = np.zeros((16, 16), dtype=np.float32)
+        X_in_rg_real = np.zeros((16, 16), dtype=np.float64)
+        X_in_rg_imag = np.zeros((16, 16), dtype=np.float64)
+        X_in_ba_real = np.zeros((16, 16), dtype=np.float64)
+        X_in_ba_imag = np.zeros((16, 16), dtype=np.float64)
 
         # fill data
         for index_row in range(16):
@@ -178,17 +185,18 @@ def FFT(paddedwidth, img_row):# w, c
 
     # merge 256 length signal to 1024/2048 length
     # radix 4/8 merge
-    if sub_array_num == 4 or sub_array_num == 8:
-        X_in_rg_real = np.zeros((sub_array_num, 256), dtype=np.float32)
-        X_in_rg_imag = np.zeros((sub_array_num, 256), dtype=np.float32)
-        X_in_ba_real = np.zeros((sub_array_num, 256), dtype=np.float32)
-        X_in_ba_imag = np.zeros((sub_array_num, 256), dtype=np.float32)
+    # if sub_array_num == 4 or sub_array_num == 8:
+    else:
+        X_in_rg_real = np.zeros((sub_array_num, 256), dtype=np.float64)
+        X_in_rg_imag = np.zeros((sub_array_num, 256), dtype=np.float64)
+        X_in_ba_real = np.zeros((sub_array_num, 256), dtype=np.float64)
+        X_in_ba_imag = np.zeros((sub_array_num, 256), dtype=np.float64)
 
-        T_real = np.zeros((sub_array_num, 256), dtype=np.float32)
-        T_imag = np.zeros((sub_array_num, 256), dtype=np.float32)
+        T_real = np.zeros((sub_array_num, 256), dtype=np.float64)
+        T_imag = np.zeros((sub_array_num, 256), dtype=np.float64)
 
-        F_real = np.zeros((sub_array_num, sub_array_num), dtype=np.float32)
-        F_imag = np.zeros((sub_array_num, sub_array_num), dtype=np.float32)
+        F_real = np.zeros((sub_array_num, sub_array_num), dtype=np.float64)
+        F_imag = np.zeros((sub_array_num, sub_array_num), dtype=np.float64)
 
         # fill T and F N1==sub_array_num N2==16X16
         for i in range(sub_array_num):
@@ -230,77 +238,144 @@ def FFT(paddedwidth, img_row):# w, c
         # for i in range(paddedwidth // 2 + 1):# r0 to r[N/2], g[N/2+1]... g[N-1] g[0] g[N/2]
         #     if i == 0:
         #         output_frequency_row[i][0:2] = np.array([ # r[0]
-        #             , 0.
-        #             ])
-        #         output_frequency_row[paddedwidth][0:2] = np.array([ #g[0]
-        #             , 0.
-        #             ])
+        #             rg_real[0], 0.
+        #             ], dtype=np.float64)
+        #         output_frequency_row[paddedwidth][0:2] = np.array([ #g[0] 
+        #             rg_imag[0], 0.
+        #             ], dtype=np.float64)
         #         output_frequency_row[paddedwidth + 1][0:2] = np.array([ #g[N/2]
-        #             -0.5*rg_imag[paddedwidth // 2]-0.5*rg_imag[paddedwidth // 2], 0.5*rg_real[paddedwidth // 2]-0.5*rg_real[paddedwidth // 2]
-        #             ])
+        #             -0.5*rg_imag[paddedwidth // 2]-0.5*rg_imag[paddedwidth // 2], 0.5*rg_real[paddedwidth // 2]-0.5*rg_real[paddedwidth // 2]# 0#TODO:
+        #             ], dtype=np.float64)
         #     else:
         #         output_frequency_row[i][0:2] = np.array([
-        #             0.5*rg_real[i]+0.5*rg_real[paddedwidth-i], 0.5*rg_imag[i]-0.5*rg_imag[paddedwidth-i],
-        #             ])
+        #             0.5*rg_real[i]+0.5*rg_real[paddedwidth-i], 0.5*rg_imag[paddedwidth-i] - 0.5*rg_imag[i],
+        #             ], dtype=np.float64)
                 
         # for i in range(paddedwidth // 2 - 1): #g[N/2+1]... g[N-1]
         #     output_frequency_row[i + paddedwidth // 2 + 1][0:2] = np.array([
-        #             -0.5*rg_imag[i + paddedwidth // 2 + 1]-0.5*rg_imag[paddedwidth-(i + paddedwidth // 2 + 1)], 0.5*rg_real[i + paddedwidth // 2 + 1]-0.5*rg_real[paddedwidth-(i + paddedwidth // 2 + 1)], 
-        #             ])# TODO:
+        #             0.5*rg_imag[i + paddedwidth // 2 + 1]+0.5*rg_imag[paddedwidth-(i + paddedwidth // 2 + 1)], 0.5*rg_real[i + paddedwidth // 2 + 1]-0.5*rg_real[paddedwidth-(i + paddedwidth // 2 + 1)], 
+        #             ], dtype=np.float64)# TODO:
         # ba
         ba_real = (Aa_ba - Bb_ba).flatten()
         ba_imag = (Ba_ba + Ab_ba).flatten()
         # for i in range(paddedwidth // 2 + 1):
         #     if i == 0:
-        #         output_frequency_row[i][2:4] = 
-        #         output_frequency_row[i + paddedwidth // 2 + 1][2:4] = 
+        #         output_frequency_row[i][2:4] = np.array([ # r[0]
+        #             ba_real[0], 0.
+        #             ], dtype=np.float64)
+        #         output_frequency_row[paddedwidth][2:4] = np.array([ #g[0]
+        #             ba_imag[0], 0.
+        #             ], dtype=np.float64)
+        #         output_frequency_row[paddedwidth + 1][2:4] = np.array([ #g[N/2]
+        #             -0.5*ba_imag[paddedwidth // 2]-0.5*ba_imag[paddedwidth // 2], 0.5*ba_real[paddedwidth // 2]-0.5*ba_real[paddedwidth // 2]# 0
+        #             ], dtype=np.float64)
+
         #     else:
         #         output_frequency_row[i][2:4] = np.array([
-        #             0.5*ba_real[i]+0.5*ba_real[paddedwidth-i], 0.5*ba_imag[i]-0.5*ba_imag[paddedwidth-i],
-        #             ])
-        #         output_frequency_row[i + paddedwidth // 2 + 1][2:4] = np.array([
-        #             -0.5*ba_imag[i]-0.5*ba_imag[paddedwidth-i], 0.5*ba_real[i]-0.5*ba_real[paddedwidth-i], 
-        #             ])
+        #             0.5*ba_real[i]+0.5*ba_real[paddedwidth-i], 0.5*ba_imag[paddedwidth-i]-0.5*ba_imag[i],
+        #             ], dtype=np.float64)
+        # for i in range(paddedwidth // 2 - 1): #g[N/2+1]... g[N-1]
+        #     output_frequency_row[i + paddedwidth // 2 + 1][2:4] = np.array([
+        #             0.5*ba_imag[i + paddedwidth // 2 + 1]+0.5*ba_imag[paddedwidth-(i + paddedwidth // 2 + 1)], 0.5*ba_real[i + paddedwidth // 2 + 1]-0.5*ba_real[paddedwidth-(i + paddedwidth // 2 + 1)], 
+        #             ], dtype=np.float64)
+
         # return output_frequency_row
 
         return rg_real, rg_imag, ba_real, ba_imag
-    else:
-        assert(False)
-        return []
-    
-def HorizontalFilter(img):
-    h, w, _ = img.shape
-    output_img = np.zeros((h, w+2, 4), dtype=np.float32)
+    # else:
+    #     assert(False)
+    #     return []
+ 
+def GetRelativeError(ours, ref):
+    error_matrix = ours.copy()
+
+    error_matrix[ref != 0.] = np.abs(ours[ref != 0.] - ref[ref != 0.]) / ref[ref != 0.]
+    error_matrix[ref == 0.] = np.abs(ours[ref == 0.] - ref[ref == 0.])
+    error = np.average(error_matrix)
+    return error
+def HorizontalFilter_Error():
+    input_img = cv2.imread("img/input_1280x720.hdr", cv2.IMREAD_UNCHANGED)
+    rgb_img = cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR)
+
+    rgb_channel4 = np.ones((rgb_img.shape[0], rgb_img.shape[1], 4), dtype=np.float64)
+    rgb_channel4[:,:,:3] = rgb_img
+
+    h, w, _ = rgb_channel4.shape
+
     paddedWidth = PadToPowOfTwo(w)
+
+    output_img = np.zeros((h, paddedWidth+2, 4), dtype=np.float64)
+    for i in tqdm(range(h)):
+        paddedInput = np.zeros((paddedWidth, 4), dtype=np.float64)
+        paddedInput[:w] = rgb_channel4[i,:]
+        paddedInput[:,3] = 1.# set alpha to 1
+        rg_real, rg_imag, ba_real, ba_imag = FFT(paddedWidth, rgb_channel4[i,:])
+        ref_rg = np.fft.fft(paddedInput[...,0] + 1j * paddedInput[...,1])
+        ref_ba = np.fft.fft(paddedInput[...,2] + 1j * paddedInput[...,3])
+        
+        error0 = GetRelativeError(rg_real, np.real(ref_rg))
+        error1 = GetRelativeError(rg_imag, np.imag(ref_rg))
+        error2 = GetRelativeError(ba_real, np.real(ref_ba))
+        error3 = GetRelativeError(ba_imag, np.imag(ref_ba))
+        
+        epsilon = 1e-11
+        if error0 > epsilon:
+            print(i)
+            print(error0)
+        if error1 > epsilon:
+            print(i)
+            print(error1)
+        if error2 > epsilon:
+            print(i)
+            print(error2)
+        if error3 > epsilon:
+            print(i)
+            print(error3)
+
+   
+def HorizontalFilterAndSplitOneForTwo(img):#
+    h, w, _ = img.shape
+    paddedWidth = PadToPowOfTwo(w)
+
+    output_img = np.zeros((h, paddedWidth+2, 4), dtype=np.float64)
     
-    for i in range(h):
-        frequency_row = FFT(paddedWidth, img[i,:])
-        output_img[i,:] = frequency_row
+    for i in tqdm(range(h)):
+        rg_real, rg_imag, ba_real, ba_imag = FFT(paddedWidth, img[i,:])
+
+        # frequency_row = 
+        # output_img[i,:] = frequency_row
     return output_img
 def HorizontalFilter_UnitTest():
     input_img = cv2.imread("img/input_1280x720.hdr", cv2.IMREAD_UNCHANGED)
+    rgb_img = cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR)
 
-    horizontal_output = HorizontalFilter(input_img)
-    cv2.imwrite("horizontal_output.exr", horizontal_output)
-    
+    rgb_channel4 = np.ones((rgb_img.shape[0], rgb_img.shape[1], 4), dtype=np.float64)
+    rgb_channel4[:,:,:3] = rgb_img
+    horizontal_output = HorizontalFilterAndSplitOneForTwo(rgb_channel4)
+
+    converted = horizontal_output.copy()
+    converted[:,:,0] = horizontal_output[:,:,2]
+    converted[:,:,2] = horizontal_output[:,:,0]
+    cv2.imwrite("horizontal_output.exr", converted)
 if __name__ == "__main__":
-    random_array = np.random.random((256, 4))
+    # HorizontalFilter_Error()
+    # random_array = np.random.random((1024, 4))
 
-    rg_real, rg_imag, ba_real, ba_imag = FFT(256, random_array)
+    # rg_real, rg_imag, ba_real, ba_imag = FFT(1024, random_array)
 
-    rg_ref = np.fft.fft(random_array[...,0] + 1j * random_array[...,1])
-    ba_ref = np.fft.fft(random_array[...,2] + 1j * random_array[...,3])
+    # rg_ref = np.fft.fft(random_array[...,0] + 1j * random_array[...,1])
+    # ba_ref = np.fft.fft(random_array[...,2] + 1j * random_array[...,3])
 
     # print(rg_real)
     # print(rg_imag)
     # print(rg_ref)
-    print(ba_real)
-    print(ba_imag)
-    print(ba_ref)
+    # print(ba_real)
+    # print(ba_imag)
+    # print(ba_ref)
 
     # HorizontalFilter_UnitTest()
 
-    # input = np.array([[0.5, 0.3], [0.3, 0.2], [0.5, 0.2], [0.45, 0.72], [0.35, 0.52], [0.15, 0.82], [0.25, 0.22], [0.15, 0.52], [0.25, 0.83], [0.23, 0.22], [0.85, 0.2], [0.35, 0.29], [0.52, 0.25], [0.25, 0.92], [0.5, 0.2], [0.59, 0.62]], dtype=np.float32)
+    # input = np.array([[0.5, 0.3], [0.3, 0.2], [0.5, 0.2], [0.45, 0.72], [0.35, 0.52], [0.15, 0.82], [0.25, 0.22], [0.15, 0.52], [0.25, 0.83], [0.23, 0.22], [0.85, 0.2], [0.35, 0.29], [0.52, 0.25], [0.25, 0.92], [0.5, 0.2], [0.59, 0.62]], dtype=np.float64)
     # # result = Radix16FFT(input)
     # # result = Radix2FFT(input)
     # # result = DFT16(input)

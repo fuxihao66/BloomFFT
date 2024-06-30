@@ -725,7 +725,6 @@ def HorizontalFFTTwoForOne_UnitTest():
 # X2(N/2-1) = congegate(X2(N/2+1))
 def LoadFromTwoForOne(paddedWidth, input_array):
     output_array = np.zeros((paddedWidth, 4), dtype=COMPUTE_TYPE) 
-    
 
     for i in range(paddedWidth):
         if i == 0:
@@ -812,7 +811,12 @@ def InvHorizontal_UnitTest():
     DstPostFilterParameter = np.array([0.01738,  0.0174,  0.01864,  0.00602], dtype=COMPUTE_TYPE)
     input_img = cv2.imread("img/input_1280x720.exr", cv2.IMREAD_UNCHANGED)
 
-    filtered_horizontal_output = cv2.imread("filtered_horizontal.exr", cv2.IMREAD_UNCHANGED)
+    filtered_horizontal_output = cv2.imread("filtered_horizontal.exr", cv2.IMREAD_UNCHANGED)# saved before channel fliped 
+    # filtered_horizontal_output = cv2.imread("img/filtered_horizontal_output.exr", cv2.IMREAD_UNCHANGED)
+    # converted_filtered = filtered_horizontal_output.copy()
+    # converted_filtered[:,:,0] = filtered_horizontal_output[:,:,2]
+    # converted_filtered[:,:,2] = filtered_horizontal_output[:,:,0]
+    # filtered_horizontal_output = converted_filtered
     # split
     paddedWidth = PadToPowOfTwo(input_img.shape[1])
     result_img = np.zeros(input_img.shape, dtype=COMPUTE_TYPE)
@@ -831,6 +835,35 @@ def InvHorizontal_UnitTest():
     converted_result[:,:,3] = 1.
 
     cv2.imwrite("final.exr", converted_result.astype(np.float32))
+
+def HorizontalInvHorizontal_UnitTest():
+    input_img = cv2.imread("img/input_1280x720.exr", cv2.IMREAD_UNCHANGED)
+    
+    rgb_img = cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR)
+
+    rgb_channel4 = np.ones((rgb_img.shape[0], rgb_img.shape[1], 4), dtype=COMPUTE_TYPE)
+    rgb_channel4[:,:,:3] = rgb_img
+
+    horizontal_output = HorizontalFFTAndSplitOneForTwo(rgb_channel4)
+    # split
+    paddedWidth = PadToPowOfTwo(input_img.shape[1])
+    result_img = np.zeros(input_img.shape, dtype=COMPUTE_TYPE)
+    for row_index in tqdm(range(input_img.shape[0])):
+        input_array = LoadFromTwoForOne(paddedWidth, horizontal_output[row_index,:]) 
+        
+        rg_real, rg_imag, ba_real, ba_imag = FFT_inverse(paddedWidth, input_array)
+        
+        result_img[row_index,:,0] = rg_real[:input_img.shape[1]] * (1. / paddedWidth)
+        result_img[row_index,:,1] = rg_imag[:input_img.shape[1]] * (1. / paddedWidth)
+        result_img[row_index,:,2] = ba_real[:input_img.shape[1]] * (1. / paddedWidth)
+        result_img[row_index,:,3] = ba_imag[:input_img.shape[1]] * (1. / paddedWidth)
+    converted_result = result_img.copy()
+    converted_result[:,:,0] = result_img[:,:,2]
+    converted_result[:,:,2] = result_img[:,:,0]
+    converted_result[:,:,3] = 1.
+
+    cv2.imwrite("horizontal_invhorizontal.exr", converted_result.astype(np.float32))
+
 
 if __name__ == "__main__":
     # test: random points fft
@@ -883,4 +916,5 @@ if __name__ == "__main__":
     # test6: inverse horizontal fft
 
     # HorizontalFFTTwoForOne_Vertical_MulFilter_InvVertical_UnitTest()
-    InvHorizontal_UnitTest()
+    # InvHorizontal_UnitTest()
+    HorizontalInvHorizontal_UnitTest()

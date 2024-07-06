@@ -541,18 +541,18 @@ def HorizontalFFTAndSplitOneForTwo(img):#
                     rg_imag[0], 0.
                     ], dtype=COMPUTE_TYPE)
                 output_img[col_index][paddedWidth + 1][0:2] = np.array([ #g[N/2]
-                    0.5*rg_imag[paddedWidth // 2]+0.5*rg_imag[paddedWidth // 2], 0
+                    rg_imag[paddedWidth // 2], 0
                     ], dtype=COMPUTE_TYPE)
             else:
                 output_img[col_index][i][0:2] = np.array([
-                    0.5*rg_real[i]+0.5*rg_real[paddedWidth-i], 0.5*rg_imag[paddedWidth-i] - 0.5*rg_imag[i],
+                    0.5*rg_real[i]+0.5*rg_real[paddedWidth-i], 0.5*rg_imag[i] - 0.5*rg_imag[paddedWidth-i],
                     ], dtype=COMPUTE_TYPE)
                 
         for i in range(paddedWidth // 2 - 1): #g[N/2+1]... g[N-1]
             output_img[col_index][i + paddedWidth // 2 + 1][0:2] = np.array([
-                    0.5*rg_imag[i + paddedWidth // 2 + 1]+0.5*rg_imag[paddedWidth-(i + paddedWidth // 2 + 1)], 0.5*rg_real[i + paddedWidth // 2 + 1]-0.5*rg_real[paddedWidth-(i + paddedWidth // 2 + 1)], 
+                    0.5*rg_imag[i + paddedWidth // 2 + 1]+0.5*rg_imag[paddedWidth-(i + paddedWidth // 2 + 1)], -0.5*rg_real[i + paddedWidth // 2 + 1]+0.5*rg_real[paddedWidth-(i + paddedWidth // 2 + 1)], 
                     ], dtype=COMPUTE_TYPE)
-            
+             
         for i in range(paddedWidth // 2 + 1):
             if i == 0:
                 output_img[col_index][i][2:4] = np.array([ # r[0]
@@ -562,16 +562,16 @@ def HorizontalFFTAndSplitOneForTwo(img):#
                     ba_imag[0], 0.
                     ], dtype=COMPUTE_TYPE)
                 output_img[col_index][paddedWidth + 1][2:4] = np.array([ #g[N/2]
-                    0.5*ba_imag[paddedWidth // 2]+0.5*ba_imag[paddedWidth // 2], 0
+                    ba_imag[paddedWidth // 2], 0
                     ], dtype=COMPUTE_TYPE)
 
             else:
                 output_img[col_index][i][2:4] = np.array([
-                    0.5*ba_real[i]+0.5*ba_real[paddedWidth-i], 0.5*ba_imag[paddedWidth-i]-0.5*ba_imag[i],
+                    0.5*ba_real[i]+0.5*ba_real[paddedWidth-i], 0.5*ba_imag[i] - 0.5*ba_imag[paddedWidth-i],
                     ], dtype=COMPUTE_TYPE)
         for i in range(paddedWidth // 2 - 1): #g[N/2+1]... g[N-1]
             output_img[col_index][i + paddedWidth // 2 + 1][2:4] = np.array([
-                    0.5*ba_imag[i + paddedWidth // 2 + 1]+0.5*ba_imag[paddedWidth-(i + paddedWidth // 2 + 1)], 0.5*ba_real[i + paddedWidth // 2 + 1]-0.5*ba_real[paddedWidth-(i + paddedWidth // 2 + 1)], 
+                    0.5*ba_imag[i + paddedWidth // 2 + 1]+0.5*ba_imag[paddedWidth-(i + paddedWidth // 2 + 1)], -0.5*ba_real[i + paddedWidth // 2 + 1]+0.5*ba_real[paddedWidth-(i + paddedWidth // 2 + 1)], 
                     ], dtype=COMPUTE_TYPE)
         # frequency_row = 
         # output_img[i,:] = frequency_row

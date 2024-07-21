@@ -1,4 +1,3 @@
-# only support 1024 2048
 import math
 import numpy as np
 import os
@@ -336,7 +335,6 @@ def FFT(paddedwidth, img_row):# w, c
     # else:
     #     assert(False)
     #     return []
-
 def FFT_inverse(paddedwidth, img_row):# w, c
 
     img_width = img_row.shape[0]
@@ -529,8 +527,8 @@ def HorizontalFFTAndSplitOneForTwo(img):#
     output_img = np.zeros((h, paddedWidth+2, 4), dtype=COMPUTE_TYPE)
     
     for col_index in tqdm(range(h)):
+        
         rg_real, rg_imag, ba_real, ba_imag = FFT(paddedWidth, img[col_index,:])
-
 
         for i in range(paddedWidth // 2 + 1):# r0 to r[N/2], g[N/2+1]... g[N-1] g[0] g[N/2]
             if i == 0:
@@ -547,6 +545,7 @@ def HorizontalFFTAndSplitOneForTwo(img):#
                 output_img[col_index][i][0:2] = np.array([
                     0.5*rg_real[i]+0.5*rg_real[paddedWidth-i], 0.5*rg_imag[i] - 0.5*rg_imag[paddedWidth-i],
                     ], dtype=COMPUTE_TYPE)
+                
                 
         for i in range(paddedWidth // 2 - 1): #g[N/2+1]... g[N-1]
             output_img[col_index][i + paddedWidth // 2 + 1][0:2] = np.array([
@@ -578,108 +577,6 @@ def HorizontalFFTAndSplitOneForTwo(img):#
     return output_img
 
     
-
-
-
-def GetRelativeError(ours, ref):
-    error_matrix = ours.copy()
-
-    error_matrix[ref != 0.] = np.abs(ours[ref != 0.] - ref[ref != 0.]) / np.abs(ref[ref != 0.])
-    error_matrix[ref == 0.] = np.abs(ours[ref == 0.] - ref[ref == 0.])
-    error = np.average(error_matrix)
-    return error
-
-def HorizontalFFTErrorUnitTest():
-    input_img = cv2.imread("img/input_1280x720.hdr", cv2.IMREAD_UNCHANGED)
-    rgb_img = cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR)
-
-    rgb_channel4 = np.ones((rgb_img.shape[0], rgb_img.shape[1], 4), dtype=COMPUTE_TYPE)
-    rgb_channel4[:,:,:3] = rgb_img
-
-    h, w, _ = rgb_channel4.shape
-
-    paddedWidth = PadToPowOfTwo(w)
-
-    output_img = np.zeros((h, paddedWidth+2, 4), dtype=COMPUTE_TYPE)
-    for i in tqdm(range(h)):
-        paddedInput = np.zeros((paddedWidth, 4), dtype=COMPUTE_TYPE)
-        paddedInput[:w] = rgb_channel4[i,:]
-        # paddedInput[:,3] = 1.# set alpha to 1
-        rg_real, rg_imag, ba_real, ba_imag = FFT(paddedWidth, rgb_channel4[i,:])
-        ref_rg = np.fft.fft(paddedInput[...,0] + 1j * paddedInput[...,1])
-        ref_ba = np.fft.fft(paddedInput[...,2] + 1j * paddedInput[...,3])
-        
-        error0 = GetRelativeError(rg_real, np.real(ref_rg))
-        error1 = GetRelativeError(rg_imag, np.imag(ref_rg))
-        error2 = GetRelativeError(ba_real, np.real(ref_ba))
-        error3 = GetRelativeError(ba_imag, np.imag(ref_ba))
-        
-        epsilon = 1e-10
-        if error0 > epsilon:
-            print(i)
-            print(error0)
-        if error1 > epsilon:
-            print(i)
-            print(error1)
-        if error2 > epsilon:
-            print(i)
-            print(error2)
-        if error3 > epsilon:
-            print(i)
-            print(error3)
-
-def TwoDimenFFTUnitTest():
-    input_img = cv2.imread("img/input_1280x720.hdr", cv2.IMREAD_UNCHANGED)
-    rgb_img = cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR)
-
-    rgb_channel4 = np.ones((rgb_img.shape[0], rgb_img.shape[1], 4), dtype=COMPUTE_TYPE)
-    rgb_channel4[:,:,:3] = rgb_img
-
-    h, w, _ = rgb_channel4.shape
-
-    paddedWidth = PadToPowOfTwo(w)
-    paddedHeight = PadToPowOfTwo(h)
-
-    output_img = np.zeros((h, paddedWidth, 4), dtype=COMPUTE_TYPE)
-    
-    for i in tqdm(range(h)):
-        paddedInput = np.zeros((paddedWidth, 4), dtype=COMPUTE_TYPE)
-        paddedInput[:w] = rgb_channel4[i,:]
-        rg_real, rg_imag, ba_real, ba_imag = FFT(paddedWidth, rgb_channel4[i,:])
-
-        output_img[i,:,0] = rg_real
-        output_img[i,:,1] = rg_imag
-        output_img[i,:,2] = ba_real
-        output_img[i,:,3] = ba_imag
-
-
-    output_fft_img = np.zeros((paddedHeight, paddedWidth, 4), dtype=COMPUTE_TYPE)
-    
-    for j in tqdm(range(paddedWidth)):
-        rg_real, rg_imag, ba_real, ba_imag = FFT(paddedHeight, output_img[:,j])
-
-        output_fft_img[:,j,0] = rg_real
-        output_fft_img[:,j,1] = rg_imag
-        output_fft_img[:,j,2] = ba_real
-        output_fft_img[:,j,3] = ba_imag
-
-    paddedInput2D = np.zeros((paddedHeight, paddedWidth, 4), dtype=COMPUTE_TYPE)
-    paddedInput2D[:h,:w,:] = rgb_channel4
-    ref_fft_rg = np.fft.fft2(paddedInput2D[:,:,0] + 1j * paddedInput2D[:,:,1])
-    ref_fft_ba = np.fft.fft2(paddedInput2D[:,:,2] + 1j * paddedInput2D[:,:,3])
-    output_fft_ref = np.zeros(output_fft_img.shape, dtype=COMPUTE_TYPE)
-    output_fft_ref[:,:,0] = np.real(ref_fft_rg)
-    output_fft_ref[:,:,1] = np.imag(ref_fft_rg)
-    output_fft_ref[:,:,2] = np.real(ref_fft_ba)
-    output_fft_ref[:,:,3] = np.imag(ref_fft_ba)
-
-    relative_error = np.zeros(output_fft_img.shape, dtype=COMPUTE_TYPE)
-    relative_error[output_fft_ref == 0.] = np.abs(output_fft_img[output_fft_ref == 0.])
-    relative_error[output_fft_ref != 0.] = np.abs(output_fft_img[output_fft_ref != 0.] - output_fft_ref[output_fft_ref != 0.]) / np.abs(output_fft_ref[output_fft_ref != 0.])
-    
-
-    print(np.average(relative_error))
-
 def ConvertToLuma(ColorValue):
     return np.dot(ColorValue, np.array([0.2126, 0.7152, 0.0722], dtype=COMPUTE_TYPE))
 def FilterPixel(Filter, PixelValue):
@@ -692,34 +589,6 @@ def FilterPixel(Filter, PixelValue):
         NewPixelValue[0:3] *= (TargetLuma / Luma)
         bIsChanged = True
     return NewPixelValue, bIsChanged
-def HorizontalFFTTwoForOne_UnitTest():
-    BrightPixelGain = np.array([7., 15000., 15.], dtype=COMPUTE_TYPE)
-    input_img = cv2.imread("img/input_1280x720.exr", cv2.IMREAD_UNCHANGED)
-    rgb_img = cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR)
-
-    rgb_channel4 = np.ones((rgb_img.shape[0], rgb_img.shape[1], 4), dtype=COMPUTE_TYPE)
-    rgb_channel4[:,:,:3] = rgb_img
-
-    for i in range(rgb_channel4.shape[0]):
-        for j in range(rgb_channel4.shape[1]):
-            r, changed = FilterPixel(BrightPixelGain, rgb_channel4[i,j])
-            if changed:
-                rgb_channel4[i,j] = r
-
-    horizontal_output = HorizontalFFTAndSplitOneForTwo(rgb_channel4)
-
-    converted = horizontal_output.copy()
-    converted[:,:,0] = horizontal_output[:,:,2]
-    converted[:,:,2] = horizontal_output[:,:,0]
-    # cv2.imwrite("horizontal_output.exr", converted.astype(np.float32))
-
-    ref_img = cv2.imread("img/horizontal_output.exr", cv2.IMREAD_UNCHANGED)
-
-    error = np.abs(converted.astype(np.float32) - ref_img)
-    # error[ref_img > 1e-6] = error[ref_img > 1e-6] / np.abs(ref_img[ref_img > 1e-6])
-
-    cv2.imwrite("error.exr", error)
-
 # Y(k) = X1(K) + iX2(K)
 # X1(N/2-1) = congegate(X1(N/2+1))
 # X2(N/2-1) = congegate(X2(N/2+1))
@@ -750,7 +619,7 @@ def LoadFromTwoForOne(paddedWidth, input_array):
     return output_array
 def HorizontalFFTTwoForOne_Vertical_MulFilter_InvVertical_UnitTest():
     BrightPixelGain = np.array([7., 15000., 15.], dtype=COMPUTE_TYPE)
-    input_img = cv2.imread("img/input_1280x720.exr", cv2.IMREAD_UNCHANGED)
+    input_img = cv2.imread("img/input_1280x720.hdr", cv2.IMREAD_UNCHANGED)
     kernel_imag = cv2.imread("img/kernel.exr", cv2.IMREAD_UNCHANGED)
     
     rgb_img = cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR)
@@ -765,6 +634,11 @@ def HorizontalFFTTwoForOne_Vertical_MulFilter_InvVertical_UnitTest():
                 rgb_channel4[i,j] = r
 
     horizontal_output = HorizontalFFTAndSplitOneForTwo(rgb_channel4)
+
+    converted = horizontal_output.copy()
+    converted[:,:,0] = horizontal_output[:,:,2]
+    converted[:,:,2] = horizontal_output[:,:,0]
+    cv2.imwrite("horizontal_output.exr", converted.astype(np.float32))
 
     # flip r b channel
     converted = kernel_imag.copy()
@@ -795,6 +669,10 @@ def HorizontalFFTTwoForOne_Vertical_MulFilter_InvVertical_UnitTest():
         if 2 * col_index > horizontal_output.shape[1] - 2:
             weights = [kernelsum[1][0], kernelsum[1][1]]
 
+        # weights = [kernelsum[0][0], kernelsum[1][0]]# TODO: ue5 version
+        # if 2 * col_index > horizontal_output.shape[1] - 2:
+        #     weights = [kernelsum[0][1], kernelsum[1][1]]
+
         Filtered = np.zeros((paddedLength, 4), dtype=COMPUTE_TYPE)
         Filtered[:,0] = np.real(Filtered_rg_complex) / weights[0] # r/g
         Filtered[:,1] = np.imag(Filtered_rg_complex) / weights[0] # r/g
@@ -806,20 +684,25 @@ def HorizontalFFTTwoForOne_Vertical_MulFilter_InvVertical_UnitTest():
         filtered_horizontal_output[:,col_index,1] = rg_imag_inv[:filtered_horizontal_output.shape[0]] * (1. / paddedLength)
         filtered_horizontal_output[:,col_index,2] = ba_real_inv[:filtered_horizontal_output.shape[0]] * (1. / paddedLength)
         filtered_horizontal_output[:,col_index,3] = ba_imag_inv[:filtered_horizontal_output.shape[0]] * (1. / paddedLength)
-    return filtered_horizontal_output
+
+    converted = filtered_horizontal_output.copy()
+    converted[:,:,0] = filtered_horizontal_output[:,:,2] 
+    converted[:,:,2] = filtered_horizontal_output[:,:,0] 
+    filtered_horizontal_output = converted
+    cv2.imwrite("filtered_horizontal.exr", filtered_horizontal_output.astype(np.float32))
+
 def InvHorizontal_UnitTest():
     DstPostFilterParameter = np.array([0.01738,  0.0174,  0.01864,  0.00602], dtype=COMPUTE_TYPE)
-    input_img = cv2.imread("img/input_1280x720.exr", cv2.IMREAD_UNCHANGED)
+    input_img = cv2.imread("img/input_1280x720.hdr", cv2.IMREAD_UNCHANGED)
 
-    filtered_horizontal_output = cv2.imread("filtered_horizontal.exr", cv2.IMREAD_UNCHANGED)# saved before channel fliped 
-    # filtered_horizontal_output = cv2.imread("img/filtered_horizontal_output.exr", cv2.IMREAD_UNCHANGED)
-    # converted_filtered = filtered_horizontal_output.copy()
-    # converted_filtered[:,:,0] = filtered_horizontal_output[:,:,2]
-    # converted_filtered[:,:,2] = filtered_horizontal_output[:,:,0]
-    # filtered_horizontal_output = converted_filtered
+    filtered_horizontal_output = cv2.imread("filtered_horizontal.exr", cv2.IMREAD_UNCHANGED)
+    converted_filtered = filtered_horizontal_output.copy()
+    converted_filtered[:,:,0] = filtered_horizontal_output[:,:,2]
+    converted_filtered[:,:,2] = filtered_horizontal_output[:,:,0]
+    filtered_horizontal_output = converted_filtered
     # split
     paddedWidth = PadToPowOfTwo(input_img.shape[1])
-    result_img = np.zeros(input_img.shape, dtype=COMPUTE_TYPE)
+    result_img = np.zeros((input_img.shape[0],input_img.shape[1],4), dtype=COMPUTE_TYPE)
     for row_index in tqdm(range(input_img.shape[0])):
         input_array = LoadFromTwoForOne(paddedWidth, filtered_horizontal_output[row_index,:]) 
         
@@ -835,86 +718,3 @@ def InvHorizontal_UnitTest():
     converted_result[:,:,3] = 1.
 
     cv2.imwrite("final.exr", converted_result.astype(np.float32))
-
-def HorizontalInvHorizontal_UnitTest():
-    input_img = cv2.imread("img/input_1280x720.exr", cv2.IMREAD_UNCHANGED)
-    
-    rgb_img = cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR)
-
-    rgb_channel4 = np.ones((rgb_img.shape[0], rgb_img.shape[1], 4), dtype=COMPUTE_TYPE)
-    rgb_channel4[:,:,:3] = rgb_img
-
-    horizontal_output = HorizontalFFTAndSplitOneForTwo(rgb_channel4)
-    # split
-    paddedWidth = PadToPowOfTwo(input_img.shape[1])
-    result_img = np.zeros(input_img.shape, dtype=COMPUTE_TYPE)
-    for row_index in tqdm(range(input_img.shape[0])):
-        input_array = LoadFromTwoForOne(paddedWidth, horizontal_output[row_index,:]) 
-        
-        rg_real, rg_imag, ba_real, ba_imag = FFT_inverse(paddedWidth, input_array)
-        
-        result_img[row_index,:,0] = rg_real[:input_img.shape[1]] * (1. / paddedWidth)
-        result_img[row_index,:,1] = rg_imag[:input_img.shape[1]] * (1. / paddedWidth)
-        result_img[row_index,:,2] = ba_real[:input_img.shape[1]] * (1. / paddedWidth)
-        result_img[row_index,:,3] = ba_imag[:input_img.shape[1]] * (1. / paddedWidth)
-    converted_result = result_img.copy()
-    converted_result[:,:,0] = result_img[:,:,2]
-    converted_result[:,:,2] = result_img[:,:,0]
-    converted_result[:,:,3] = 1.
-
-    cv2.imwrite("horizontal_invhorizontal.exr", converted_result.astype(np.float32))
-
-
-if __name__ == "__main__":
-    # test: random points fft
-    # random_array = np.random.random((1024, 4))
-
-    # rg_real, rg_imag, ba_real, ba_imag = FFT(1024, random_array)
-
-    # rg_ref = np.fft.fft(random_array[...,0] + 1j * random_array[...,1])
-    # ba_ref = np.fft.fft(random_array[...,2] + 1j * random_array[...,3])
-
-    # print(rg_real)
-    # print(rg_imag)
-    # print(rg_ref)
-    # print(ba_real)
-    # print(ba_imag)
-    # print(ba_ref)
-
-    # test: random points fft and inverse fft
-
-    # random_array = np.random.random((2048, 4))
-    # paddedLength = PadToPowOfTwo(random_array.shape[0])
-    # rg_real, rg_imag, ba_real, ba_imag = FFT(paddedLength, random_array)
-    # fft_result = np.zeros((paddedLength, 4), dtype=COMPUTE_TYPE)
-    # fft_result[:,0] = rg_real
-    # fft_result[:,1] = rg_imag
-    # fft_result[:,2] = ba_real
-    # fft_result[:,3] = ba_imag
-    # rg_real, rg_imag, ba_real, ba_imag = FFT_inverse(paddedLength, fft_result)
-
-    # fft_result[:,0] = rg_real * (1. / paddedLength)
-    # fft_result[:,1] = rg_imag * (1. / paddedLength)
-    # fft_result[:,2] = ba_real * (1. / paddedLength)
-    # fft_result[:,3] = ba_imag * (1. / paddedLength)
-
-    # errormetrices = np.abs(fft_result)
-    # errormetrices[random_array != 0.] = np.abs(random_array[random_array != 0.] - fft_result[random_array != 0.]) / np.abs(random_array[random_array != 0.])
-    # print(np.average(errormetrices))
-
-    # test1: do fft on image rows
-    # HorizontalFFTErrorUnitTest()
-
-    # test2: fft two for one (one complex fft for two real series)
-    # HorizontalFFTTwoForOne_UnitTest()
-    # test3: vertical fft 
-    # TwoDimenFFTUnitTest()
-    # test4: vertical fft and multiply
-
-    # test5: inverse vertical fft
-    
-    # test6: inverse horizontal fft
-
-    # HorizontalFFTTwoForOne_Vertical_MulFilter_InvVertical_UnitTest()
-    # InvHorizontal_UnitTest()
-    HorizontalInvHorizontal_UnitTest()

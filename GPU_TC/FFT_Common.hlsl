@@ -244,12 +244,79 @@ void Radix16FFT(in bool bIsForward, inout Complex Local[16])
     Radix8FFT(bIsForward, Local[1], Local[3], Local[5], Local[7], Local[9], Local[11], Local[13], Local[15]);
 	Complex Rslt[16];
 
+    Rslt[0] = Local[0] + Local[1];
+	Rslt[8] = Local[0] - Local[1];
+
+    Complex Twiddle;
+	if (bIsForward)
+	{
+		Twiddle = Complex(0.92388f, -0.38268f);
+	}
+	else
+	{
+		Twiddle = Complex(0.92388f, 0.38268f);
+	}
+
+    Complex Tmp = ComplexMult(Twiddle, Local[3]);
+
+	Rslt[1] = Local[2] + Tmp;
+	Rslt[9] = Local[2] - Tmp;
+
+    Twiddle.x = -Twiddle.x;
+	Tmp = ComplexMult(Twiddle, Local[15]);
+
+	Rslt[7] = Local[14] + Tmp;
+	Rslt[15] = Local[14] - Tmp;
+
+	const float InvSqrtTwo = float(1.f) / sqrt(2.f);
     if (bIsForward)
 	{
-        
+		Twiddle = Complex(InvSqrtTwo, -InvSqrtTwo);
+	}
+	else
+	{
+		Twiddle = Complex(InvSqrtTwo, InvSqrtTwo);
+	}
+    Tmp = ComplexMult(Twiddle, Local[5]);
+
+	Rslt[2] = Local[4] + Tmp;
+	Rslt[10] = Local[4] - Tmp;
+
+    Twiddle.x = -Twiddle.x;
+	Tmp = ComplexMult(Twiddle, Local[13]);
+
+	Rslt[6] = Local[12] + Tmp;
+	Rslt[14] = Local[12] - Tmp;
+
+
+    if (bIsForward)
+	{
+		Twiddle = Complex(0.38268f, -0.923888f);
+	}
+	else
+	{
+		Twiddle = Complex(0.38268f, 0.923888f);
+	}
+
+    Tmp = ComplexMult(Twiddle, Local[7]);
+
+	Rslt[3] = Local[6] + Tmp;
+	Rslt[11] = Local[6] - Tmp;
+
+    Twiddle.x = -Twiddle.x;
+	Tmp = ComplexMult(Twiddle, Local[11]);
+
+	Rslt[5] = Local[10] + Tmp;
+	Rslt[13] = Local[10] - Tmp;
+
+    if (bIsForward)
+	{
+        Rslt[4] = Complex(Local[8].x + Local[9].y, Local[8].y - Local[9].x);
+		Rslt[12] = Complex(Local[8].x - Local[9].y, Local[8].y + Local[9].x);
     }
     else{
-
+        Rslt[4] = Complex(Local[8].x - Local[9].y, Local[8].y + Local[9].x);
+		Rslt[12] = Complex(Local[8].x + Local[9].y, Local[8].y - Local[9].x);
     }
 
     for (int i = 0; i < 16; i++){
@@ -279,6 +346,18 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
     #error "Undefined radix length!"
 #endif
 
+    for (int i = 0; i < 2; i++){// each wave deals with two 16x16 complex multiplication
+
+    }
+
+
+// #if SCAN_LINE_LENGTH == 2048
+
+// #elif SCAN_LINE_LENGTH == 1024
+
+// #else
+//     #error "Only Support Signal Length of 1024 or 2048!"
+// #endif
     // tensor core
 }
 

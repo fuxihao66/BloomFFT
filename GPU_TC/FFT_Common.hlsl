@@ -328,6 +328,8 @@ groupshared float16_t groupMatInput[SCAN_LINE_LENGTH * 2];
 groupshared float16_t groupMatF[SCAN_LINE_LENGTH * 2];
 groupshared float16_t groupMatOutput[SCAN_LINE_LENGTH * 2];
 
+static const float PI = 3.14159265f;
+
 // 对于1024 直接用16x64 一次完成
 // 对于2048 一次16x16 然后一次 16x16(把8x8复数运算pad成8x16)
 // Performs a single pass Stockham FFT using group shared memory.
@@ -371,16 +373,25 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
 		WaveMatrixAccumulator<float16_t, 16, 16> result_Ab;
 		WaveMatrixAccumulator<float16_t, 16, 16> result_Bb;
 
+		for (int i = 0; i < 2048 / SCAN_LINE_LENGTH; i++){// TODO: scalelinelength == 1024
+			uint2 twoDimCoord = uint2((IdxS * 2 + 0) / 16, (IdxS * 2 + 0) % 16);
+			groupMatF[IdxS * 2 + 0] = (float16_t)cos(-2.f * PI * twoDimCoord.x * twoDimCoord.y / (256.f));
+			groupMatF[IdxS * 2 + 0 + 256] = (float16_t)sin(-2 * PI * twoDimCoord.x * twoDimCoord.y / (256.f));
+			twoDimCoord = uint2((IdxS * 2 + 1) / 16, (IdxS * 2 + 1) % 16);
+			groupMatF[IdxS * 2 + 1] = (float16_t)cos(-2.f * PI * twoDimCoord.x * twoDimCoord.y / (256.f));
+			groupMatF[IdxS * 2 + 1 + 256] = (float16_t)sin(-2 * PI * twoDimCoord.x * twoDimCoord.y / (256.f));
+		}
 		// element wise wultiplication of twiddle
 		for (int i = 0; i < RADIX; i++){
 			Complex TwiddleScaled = ;
-			groupMatInput[] = ComplexMult(TwiddleScaled, );
-			groupMatF[] = ;
+			Complex ElementWiseResult = ComplexMult(TwiddleScaled, );
+			groupMatInput[i * SCAN_LINE_LENGTH / RADIX + IdxS] = ElementWiseResult.x;
+			groupMatInput[i * SCAN_LINE_LENGTH / RADIX + IdxS + SCAN_LINE_LENGTH] = ElementWiseResult.y;
 		}
 		GroupMemoryBarrierWithGroupSync();
 
-		mat_f_real.Load(groupMatF, 0, 16, false);
-		mat_f_imag.Load(groupMatF, 0, 16, false);
+		mat_f_real.Load(groupMatF, 							  0, 16 * /*sizeof(float16_t)*/2, false);
+		mat_f_imag.Load(groupMatF, 256 * /*sizeof(float16_t)*/2, 16 * /*sizeof(float16_t)*/2, false);
 
 		// SIGNAL_NUM: (SCAN_LINE_LENGTH / 16) INPUT_SIGNAL_LENGTH: 16 OUTPUT_SIGNAL_LENGTH: 256
 		[unroll]

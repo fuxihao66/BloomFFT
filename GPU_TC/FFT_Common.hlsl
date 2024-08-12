@@ -1,5 +1,5 @@
 #define RADIX 16
-#define Complex float2
+#define Complex float16_t2
 
 void ScrubNANs(inout Complex LocalBuffer[2][RADIX])
 {
@@ -16,8 +16,8 @@ void ScrubNANs(inout Complex LocalBuffer[2][RADIX])
 
 void CopyDataSrcWindowToLocal(inout Complex LocalBuffer[2][RADIX], bool bIsHorizontal, uint ScanIdx, uint Loc, uint Stride, uint2 WindowMin, uint2 WindowMax )
 {
-	{ for (uint i = 0; i < RADIX; ++i) LocalBuffer[0][ i ] = float2(0.f, 0.f); }
-	{ for (uint i = 0; i < RADIX; ++i) LocalBuffer[1][ i ] = float2(0.f, 0.f); }
+	{ for (uint i = 0; i < RADIX; ++i) LocalBuffer[0][ i ] = Complex(0.f, 0.f); }
+	{ for (uint i = 0; i < RADIX; ++i) LocalBuffer[1][ i ] = Complex(0.f, 0.f); }
     Texture2D SrcTexture = ResourceDescriptorHeap[InputTextureOffset];
 
 	if (bIsHorizontal) 
@@ -63,8 +63,8 @@ void CopyDataSrcWindowToLocal(inout Complex LocalBuffer[2][RADIX], bool bIsHoriz
 }
 void CopyDataSrcWindowToLocal(inout Complex LocalBuffer[2][RADIX], bool bIsHorizontal, in uint ScanIdx, uint Loc, uint Stride, uint4 Window)
 {
-	{ for (uint i = 0; i < RADIX; ++i) LocalBuffer[0][ i ] = float2(0.f, 0.f); }
-	{ for (uint i = 0; i < RADIX; ++i) LocalBuffer[1][ i ] = float2(0.f, 0.f); }
+	{ for (uint i = 0; i < RADIX; ++i) LocalBuffer[0][ i ] = Complex(0.f, 0.f); }
+	{ for (uint i = 0; i < RADIX; ++i) LocalBuffer[1][ i ] = Complex(0.f, 0.f); }
     Texture2D SrcTexture = ResourceDescriptorHeap[InputTextureOffset];
 	
 	if (bIsHorizontal) 
@@ -324,6 +324,12 @@ void Radix16FFT(in bool bIsForward, inout Complex Local[16])
     }
 }
 
+groupshared float16_t groupMatInput[SCAN_LINE_LENGTH * 2];
+groupshared float16_t groupMatF[SCAN_LINE_LENGTH * 2];
+groupshared float16_t groupMatOutput[SCAN_LINE_LENGTH * 2];
+
+// 对于1024 直接用16x64 一次完成
+// 对于2048 一次16x16 然后一次 16x16(把8x8复数运算pad成8x16)
 // Performs a single pass Stockham FFT using group shared memory.
 void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in const uint ArrayLength, in const uint ThreadIdx)
 {
@@ -346,19 +352,99 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
     #error "Undefined radix length!"
 #endif
 
-    for (int i = 0; i < 2; i++){// each wave deals with two 16x16 complex multiplication
+	
+#if SCAN_LINE_LENGTH == 2048
 
-    }
+#elif SCAN_LINE_LENGTH == 1024
 
+#else
+    #error "Only Support Signal Length of 1024 or 2048!"
+#endif
 
-// #if SCAN_LINE_LENGTH == 2048
+	{
+		WaveMatrixRight<float16_t, 16, 16> mat_x; // x for real part
+		WaveMatrixRight<float16_t, 16, 16> mat_y;// y for imag part
+		WaveMatrixLeft<float16_t, 16, 16> mat_f_real;
+		WaveMatrixLeft<float16_t, 16, 16> mat_f_imag;
+		WaveMatrixAccumulator<float16_t, 16, 16> result_Aa;
+		WaveMatrixAccumulator<float16_t, 16, 16> result_Ba;
+		WaveMatrixAccumulator<float16_t, 16, 16> result_Ab;
+		WaveMatrixAccumulator<float16_t, 16, 16> result_Bb;
 
-// #elif SCAN_LINE_LENGTH == 1024
+		// element wise wultiplication of twiddle
+		for (int i = 0; i < RADIX; i++){
+			Complex TwiddleScaled = ;
+			groupMatInput[] = ComplexMult(TwiddleScaled, );
+			groupMatF[] = ;
+		}
+		GroupMemoryBarrierWithGroupSync();
 
-// #else
-//     #error "Only Support Signal Length of 1024 or 2048!"
-// #endif
-    // tensor core
+		mat_f_real.Load(groupMatF, 0, 16, false);
+		mat_f_imag.Load(groupMatF, 0, 16, false);
+
+		// SIGNAL_NUM: (SCAN_LINE_LENGTH / 16) INPUT_SIGNAL_LENGTH: 16 OUTPUT_SIGNAL_LENGTH: 256
+		[unroll]
+		for (int i = 0; i < 2; i++){// each wave deals with two 16x16 complex multiplication
+			mat_x.Load(groupMatInput, 0, 16, false);
+			mat_y.Load(groupMatInput, 0, 16, false);
+			
+			// complex matrix mul to real matrix mul
+			result_Aa.MultiplyAccumulate(mat_f_real, mat_x);
+			result_Ba.MultiplyAccumulate(mat_f_imag, mat_x);
+			result_Ab.MultiplyAccumulate(mat_f_real, mat_y);
+			result_Bb.MultiplyAccumulate(mat_f_imag, mat_y);
+
+			result_Bb.ScalarMultiply((float16_t)(-1));
+			result_Aa.Add(result_Bb);
+			result_Ba.Add(result_Ab);
+
+			result_Aa.Store(groupMatOutput_x, 0, 16, false);
+			result_Ba.Store(groupMatOutput_x, 0, 16, false);
+		}
+	}	
+
+	GroupMemoryBarrierWithGroupSync();
+
+	{
+		WaveMatrixRight<float16_t, 16, 64> mat_x; // x for real part
+		WaveMatrixRight<float16_t, 16, 64> mat_y;// y for imag part
+		WaveMatrixLeft<float16_t, 16, 64> mat_f_real;
+		WaveMatrixLeft<float16_t, 16, 64> mat_f_imag;
+		WaveMatrixAccumulator<float16_t, 16, 64> result_Aa;
+		WaveMatrixAccumulator<float16_t, 16, 64> result_Ba;
+		WaveMatrixAccumulator<float16_t, 16, 64> result_Ab;
+		WaveMatrixAccumulator<float16_t, 16, 64> result_Bb;
+
+		mat_f_real.Load(, 0, 16, false);
+		mat_f_imag.Load(, 0, 16, false);
+		// element wise
+
+		// SIGNAL_NUM: (SCAN_LINE_LENGTH / 256) INPUT_SIGNAL_LENGTH: 256 OUTPUT_SIGNAL_LENGTH: SCAN_LINE_LENGTH
+		[unroll]
+		for (int i = 0; i < 2048 / SCAN_LINE_LENGTH; i++){
+			mat_x.Load(groupMatInput_x, 0, 16, false);
+			mat_y.Load(groupMatInput_x, 0, 16, false);
+
+			result_Aa.MultiplyAccumulate(mat_f_real, mat_x);
+			result_Ba.MultiplyAccumulate(mat_f_imag, mat_x);
+			result_Ab.MultiplyAccumulate(mat_f_real, mat_y);
+			result_Bb.MultiplyAccumulate(mat_f_imag, mat_y);
+
+			result_Bb.ScalarMultiply((float16_t)-1);
+			result_Aa.Add(result_Bb);
+			result_Ba.Add(result_Ab);
+
+			result_Aa.Store(groupMatOutput_x, 0, 16, false);
+			result_Ba.Store(groupMatOutput_x, 0, 16, false);
+		}
+	}
+	
+	GroupMemoryBarrierWithGroupSync();
+
+	// write result back to local buffer
+	for (int i = 0; i < RADIX; i++){
+		Local[i] = ;
+	}
 }
 
 
@@ -425,7 +511,7 @@ void CopyLocalYToGroupShared(in Complex Local[RADIX], in uint Head, in uint Stri
 {
 	CopyLocalYToGroupShared(Local, Head, Stride, 0);
 }
-void SplitTwoForOne(inout float2 LocalBuffer[RADIX], in uint Head, in uint Stride, in uint N)
+void SplitTwoForOne(inout Complex LocalBuffer[RADIX], in uint Head, in uint Stride, in uint N)
 {
 
 	const uint Non2 = N / 2;	
@@ -482,11 +568,11 @@ void SplitTwoForOne(inout float2 LocalBuffer[RADIX], in uint Head, in uint Strid
 		for (uint i = 0, K = Head; i < RADIX; ++i, K += Stride)
 		{
 			
-			if (K > Non2) LocalBuffer[i] = ComplexMult(float2(0, -1), LocalBuffer[i] );
+			if (K > Non2) LocalBuffer[i] = ComplexMult(Complex(0, -1), LocalBuffer[i] );
 		}
 	}
 }
-void SplitTwoForOne(inout float2 LocalBuffer[2][RADIX], in uint Head, in uint Stride, in uint ArrayLength)
+void SplitTwoForOne(inout Complex LocalBuffer[2][RADIX], in uint Head, in uint Stride, in uint ArrayLength)
 {
 	
 	SplitTwoForOne(LocalBuffer[ 0 ], Head, Stride, ArrayLength);
@@ -495,7 +581,7 @@ void SplitTwoForOne(inout float2 LocalBuffer[2][RADIX], in uint Head, in uint St
 	SplitTwoForOne(LocalBuffer[ 1 ], Head, Stride, ArrayLength);
 	
 }
-void WriteTwoForOneFrequencyData(in bool bIsHorizontal, inout float2 LocalBuffer[2][RADIX], uint ScanIdx, uint Loc, uint Stride, uint N)
+void WriteTwoForOneFrequencyData(in bool bIsHorizontal, inout ComplexMult LocalBuffer[2][RADIX], uint ScanIdx, uint Loc, uint Stride, uint N)
 {
     RWTexture2D<float4> DstTexture = ResourceDescriptorHeap[OutputTextureOffset];
 
@@ -605,7 +691,7 @@ void CopyDataLocalToDstWindow(in Complex LocalBuffer[2][RADIX], bool bIsHorizont
 	CopyDataLocalToDstWindow(LocalBuffer, bIsHorizontal, ScanIdx, Loc, Stride, ROIRect);
 }
 
-void MergeTwoForOne(inout float2 LocalBuffer[RADIX], in uint Head, in uint Stride, in uint N)
+void MergeTwoForOne(inout Complex LocalBuffer[RADIX], in uint Head, in uint Stride, in uint N)
 {
 	
 	uint Non2 = N / 2;
@@ -632,8 +718,8 @@ void MergeTwoForOne(inout float2 LocalBuffer[RADIX], in uint Head, in uint Strid
 		}
 	}
 	
-	float2 FirstElement  = float2(0, SharedReal[0]);
-	float2 MiddleElement = float2(0, SharedReal[Non2]);
+	Complex FirstElement  = Complex(0, SharedReal[0]);
+	Complex MiddleElement = Complex(0, SharedReal[Non2]);
 
 	GroupMemoryBarrierWithGroupSync();
 
@@ -664,7 +750,7 @@ void MergeTwoForOne(inout float2 LocalBuffer[RADIX], in uint Head, in uint Strid
 		for (uint i = 0, K = Head; i < RADIX; ++i, K += Stride)
 		{
 			
-			if (K > Non2) LocalBuffer[ i ] = ComplexMult(float2(0, 1), LocalBuffer[ i ]);
+			if (K > Non2) LocalBuffer[ i ] = ComplexMult(Complex(0, 1), LocalBuffer[ i ]);
 
 			if (K == Non2)
 			{	

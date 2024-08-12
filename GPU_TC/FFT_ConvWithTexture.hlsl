@@ -69,7 +69,7 @@ void ComplexMultTexture(bool bIsHorizontal, bool bUseAlpha, bool bIsGAGroup, in 
 	
 	ComplexMultTexture( bUseAlpha, bIsGAGroup,  Filter, LocalBuffer);
 }
-void GetKernelSum(in Texture2D KernelTexture, in bool bIsHorizontal, uint NumScanlines, inout Complex Integral[2])
+void GetKernelSum(in Texture2D KernelTexture, in bool bIsHorizontal, uint NumScanlines, inout float2 Integral[2])
 {
 
 	
@@ -133,7 +133,7 @@ void GSConvolutionWithTextureCS(uint3 GroupID : SV_GroupID, uint3 GroupThreadID 
 	
 	// Force the alpha 'tint' to do nothing
 	float4 FilterTint = float4(1, 1, 1, 1);
-	const float2 Tint = (bIsGAGroup) ? float2(FilterTint.y, 1.f) : FilterTint.xz;
+	const Complex Tint = (bIsGAGroup) ? Complex(FilterTint.y, 1.f) : FilterTint.xz;
 
 	// The length of the signal to be transformed
 	

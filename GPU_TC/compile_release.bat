@@ -1,0 +1,1 @@
+.\dxc_preview\bin\x64\dxc.exe /D_WAVE_OP /E"CSMain" /Vn"g_TwoForOneShader_CS" /HV"2018" /enable-16bit-types /Tcs_6_8 /Fh"FFT_TwoForOne.hlsl.h" /nologo "./FFT_TwoForOne.hlsl"

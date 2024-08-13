@@ -401,6 +401,7 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
 
 		// mat_f_real.Load(groupMatF, 	 0, 16, false);
 		// mat_f_imag.Load(groupMatF, 256, 16, false);
+		// FBuffer: 256 for real, 256 for complex, 256 for final merge real, 256 for final merge complex
 		mat_f_real.Load(FBuffer, 						    0, 16 * /*sizeof(float16_t)*/2, false);
 		mat_f_imag.Load(FBuffer, 256 * /*sizeof(float16_t)*/2, 16 * /*sizeof(float16_t)*/2, false);
 

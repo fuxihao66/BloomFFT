@@ -15,6 +15,7 @@ cbuffer cb0 : register(b0)
     uint InputTextureOffset;
     uint OutputTextureOffset;
     uint DstPostFilterParaOffset;
+	uint FBufferOffset;
 };
 #include "FFT_Common.hlsl"
 

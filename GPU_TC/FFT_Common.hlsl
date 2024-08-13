@@ -324,9 +324,9 @@ void Radix16FFT(in bool bIsForward, inout Complex Local[16])
     }
 }
 
-groupshared float16_t groupMatInput[SCAN_LINE_LENGTH * 2];
-groupshared float16_t groupMatF[SCAN_LINE_LENGTH * 2];
-groupshared float16_t groupMatOutput[SCAN_LINE_LENGTH * 2];
+groupshared float16_t groupMatInput[4096 * 2];
+// groupshared float16_t groupMatF[256 * 2];
+groupshared float16_t groupMatOutput[4096 * 2];
 
 static const float PI = 3.14159265f;
 
@@ -362,55 +362,66 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
 #else
     #error "Only Support Signal Length of 1024 or 2048!"
 #endif
+	ByteAddressBuffer FBuffer = ResourceDescriptorHeap[FBufferOffset];
 
+	const uint WaveIndex = WaveReadLaneFirst(IdxS / WAVE_SIZE);// 2 waves for 1024 / 4 waves for 2048
+	const uint groupsize = SCAN_LINE_LENGTH / RADIX;
+	const uint finalMergeNum = groupsize / 16;
 	{
 		WaveMatrixRight<float16_t, 16, 16> mat_x; // x for real part
 		WaveMatrixRight<float16_t, 16, 16> mat_y;// y for imag part
 		WaveMatrixLeft<float16_t, 16, 16> mat_f_real;
 		WaveMatrixLeft<float16_t, 16, 16> mat_f_imag;
-		WaveMatrixAccumulator<float16_t, 16, 16> result_Aa;
-		WaveMatrixAccumulator<float16_t, 16, 16> result_Ba;
+		// WaveMatrixAccumulator<float16_t, 16, 16> result_Aa;
+		// WaveMatrixAccumulator<float16_t, 16, 16> result_Ba;
 		WaveMatrixAccumulator<float16_t, 16, 16> result_Ab;
 		WaveMatrixAccumulator<float16_t, 16, 16> result_Bb;
 
-		for (int i = 0; i < 2048 / SCAN_LINE_LENGTH; i++){// TODO: scalelinelength == 1024
-			uint2 twoDimCoord = uint2((IdxS * 2 + 0) / 16, (IdxS * 2 + 0) % 16);
-			groupMatF[IdxS * 2 + 0] = (float16_t)cos(-2.f * PI * twoDimCoord.x * twoDimCoord.y / (256.f));
-			groupMatF[IdxS * 2 + 0 + 256] = (float16_t)sin(-2 * PI * twoDimCoord.x * twoDimCoord.y / (256.f));
-			twoDimCoord = uint2((IdxS * 2 + 1) / 16, (IdxS * 2 + 1) % 16);
-			groupMatF[IdxS * 2 + 1] = (float16_t)cos(-2.f * PI * twoDimCoord.x * twoDimCoord.y / (256.f));
-			groupMatF[IdxS * 2 + 1 + 256] = (float16_t)sin(-2 * PI * twoDimCoord.x * twoDimCoord.y / (256.f));
-		}
+		// [unroll]
+		// for (int i = 0; i < 2048 / SCAN_LINE_LENGTH; i++){//
+		// 	uint FlattenedIndex = (IdxS * 2 + 0) + i * groupsize * 2;
+		// 	uint2 twoDimCoord = uint2(FlattenedIndex / 16, FlattenedIndex % 16);
+		// 	groupMatF[IdxS * 2 + 0] = (float16_t)cos(-2.f * PI * twoDimCoord.x * twoDimCoord.y / (16.f));
+		// 	groupMatF[IdxS * 2 + 0 + 256] = (float16_t)sin(-2 * PI * twoDimCoord.x * twoDimCoord.y / (16.f));
+		// 	FlattenedIndex = FlattenedIndex + 1;
+		// 	twoDimCoord = uint2(FlattenedIndex / 16, FlattenedIndex % 16);
+		// 	groupMatF[IdxS * 2 + 1] = (float16_t)cos(-2.f * PI * twoDimCoord.x * twoDimCoord.y / (16.f));
+		// 	groupMatF[IdxS * 2 + 1 + 256] = (float16_t)sin(-2 * PI * twoDimCoord.x * twoDimCoord.y / (16.f));
+		// }
 		// element wise wultiplication of twiddle
-		for (int i = 0; i < RADIX; i++){
-			Complex TwiddleScaled = ;
-			Complex ElementWiseResult = ComplexMult(TwiddleScaled, );
-			groupMatInput[i * SCAN_LINE_LENGTH / RADIX + IdxS] = ElementWiseResult.x;
-			groupMatInput[i * SCAN_LINE_LENGTH / RADIX + IdxS + SCAN_LINE_LENGTH] = ElementWiseResult.y;
+		const int rowIndex = IdxS / finalMergeNum;
+		[unroll]
+		for (int j = 0; j < RADIX; j++){// TODO: remove bank conflict
+			Complex TwiddleScaled = Complex(cos(-2.f * PI * j * rowIndex / (256.f)), sin(-2.f * PI * j * rowIndex / (256.f)));
+			Complex ElementWiseResult = ComplexMult(TwiddleScaled, Local[j]);
+			groupMatInput[RADIX * IdxS + j] = ElementWiseResult.x;
+			groupMatInput[RADIX * IdxS + j + SCAN_LINE_LENGTH] = ElementWiseResult.y;
 		}
 		GroupMemoryBarrierWithGroupSync();
 
-		mat_f_real.Load(groupMatF, 							  0, 16 * /*sizeof(float16_t)*/2, false);
-		mat_f_imag.Load(groupMatF, 256 * /*sizeof(float16_t)*/2, 16 * /*sizeof(float16_t)*/2, false);
+		// mat_f_real.Load(groupMatF, 	 0, 16, false);
+		// mat_f_imag.Load(groupMatF, 256, 16, false);
+		mat_f_real.Load(FBuffer, 						    0, 16 * /*sizeof(float16_t)*/2, false);
+		mat_f_imag.Load(FBuffer, 256 * /*sizeof(float16_t)*/2, 16 * /*sizeof(float16_t)*/2, false);
 
 		// SIGNAL_NUM: (SCAN_LINE_LENGTH / 16) INPUT_SIGNAL_LENGTH: 16 OUTPUT_SIGNAL_LENGTH: 256
 		[unroll]
 		for (int i = 0; i < 2; i++){// each wave deals with two 16x16 complex multiplication
-			mat_x.Load(groupMatInput, 0, 16, false);
-			mat_y.Load(groupMatInput, 0, 16, false);
+			mat_x.Load(groupMatInput, (WaveIndex * 2 + i) * 16, SCAN_LINE_LENGTH / RADIX, false);// TODO: remove bank conflict
+			mat_y.Load(groupMatInput, (WaveIndex * 2 + i) * 16 + SCAN_LINE_LENGTH, SCAN_LINE_LENGTH / RADIX, false);
 			
 			// complex matrix mul to real matrix mul
-			result_Aa.MultiplyAccumulate(mat_f_real, mat_x);
-			result_Ba.MultiplyAccumulate(mat_f_imag, mat_x);
-			result_Ab.MultiplyAccumulate(mat_f_real, mat_y);
-			result_Bb.MultiplyAccumulate(mat_f_imag, mat_y);
+			// result_Aa.MultiplyAccumulate(mat_f_real, mat_x);
+			// result_Ba.MultiplyAccumulate(mat_f_imag, mat_x);
+			result_Ab.Multiply(mat_f_real, mat_y);
+			result_Bb.Multiply(mat_f_imag, mat_y);
 
 			result_Bb.ScalarMultiply((float16_t)(-1));
-			result_Aa.Add(result_Bb);
-			result_Ba.Add(result_Ab);
+			result_Bb.MultiplyAccumulate(mat_f_real, mat_x);
+			result_Ab.MultiplyAccumulate(mat_f_imag, mat_x);
 
-			result_Aa.Store(groupMatOutput_x, 0, 16, false);
-			result_Ba.Store(groupMatOutput_x, 0, 16, false);
+			result_Bb.Store(groupMatOutput, (WaveIndex * 2 + i) * 256, 16, false);// real
+			result_Ab.Store(groupMatOutput, (WaveIndex * 2 + i) * 256 + SCAN_LINE_LENGTH, 16, false);// imag
 		}
 	}	
 
@@ -421,32 +432,75 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
 		WaveMatrixRight<float16_t, 16, 64> mat_y;// y for imag part
 		WaveMatrixLeft<float16_t, 16, 64> mat_f_real;
 		WaveMatrixLeft<float16_t, 16, 64> mat_f_imag;
-		WaveMatrixAccumulator<float16_t, 16, 64> result_Aa;
-		WaveMatrixAccumulator<float16_t, 16, 64> result_Ba;
 		WaveMatrixAccumulator<float16_t, 16, 64> result_Ab;
 		WaveMatrixAccumulator<float16_t, 16, 64> result_Bb;
 
-		mat_f_real.Load(, 0, 16, false);
-		mat_f_imag.Load(, 0, 16, false);
+		// [unroll]
+		// for (int i = 0; i < 2048 / SCAN_LINE_LENGTH; i++){// TODO: ZOrder optimize
+		// 	uint FlattenedIndex = (IdxS * 2 + 0) + i * groupsize * 2;
+		// 	uint2 twoDimCoord = uint2(FlattenedIndex / 16, FlattenedIndex % 16);
+		// 	if (twoDimCoord.x >= finalMergeNum || twoDimCoord.y >= finalMergeNum){
+		// 		groupMatF[IdxS * 2 + 0] = 0.f;
+		// 		groupMatF[IdxS * 2 + 0 + 256] = 0.f;
+		// 	}
+		// 	else{
+		// 		groupMatF[IdxS * 2 + 0] = (float16_t)cos(-2.f * PI * twoDimCoord.x * twoDimCoord.y / float16_t(finalMergeNum));
+		// 		groupMatF[IdxS * 2 + 0 + 256] = (float16_t)sin(-2 * PI * twoDimCoord.x * twoDimCoord.y / float16_t(finalMergeNum));
+		// 	}
+			
+		// 	FlattenedIndex = FlattenedIndex + 1;
+		// 	twoDimCoord = uint2(FlattenedIndex / 16, FlattenedIndex % 16);
+		// 	if (twoDimCoord.x >= finalMergeNum || twoDimCoord.y >= finalMergeNum){
+		// 		groupMatF[IdxS * 2 + 1] = 0.f;
+		// 		groupMatF[IdxS * 2 + 1 + 256] = 0.f;
+		// 	}
+		// 	else{
+		// 		groupMatF[IdxS * 2 + 1] = (float16_t)cos(-2.f * PI * twoDimCoord.x * twoDimCoord.y / float16_t(finalMergeNum));
+		// 		groupMatF[IdxS * 2 + 1 + 256] = (float16_t)sin(-2 * PI * twoDimCoord.x * twoDimCoord.y / float16_t(finalMergeNum));
+		// 	}
+			
+		// }
+
 		// element wise
+		{
+			const uint stride = SCAN_LINE_LENGTH / RADIX * 2;
+
+			for (int i = 0; i < RADIX / 2; i++){// TODO: merge twiddle to previous stage?
+				for (int j = 0; j < 2; j++){
+					uint FlattenedIndex = stride * i + 2 * IdxS + j;
+					const Complex v = Complex(groupMatOutput[FlattenedIndex], groupMatOutput[FlattenedIndex + SCAN_LINE_LENGTH]);
+					const uint colIndex = FlattenedIndex % 256;
+					const uint rowIndex = FlattenedIndex / 256;
+					const Complex Twiddle = Complex(cos(-2.f * PI * colIndex * rowIndex / float16_t(SCAN_LINE_LENGTH)), sin(-2.f * PI * colIndex * rowIndex / float16_t(SCAN_LINE_LENGTH)));
+					const Complex Result = ComplexMult(v, Twiddle);
+					groupMatOutput[FlattenedIndex] = Result.x;
+					groupMatOutput[FlattenedIndex + SCAN_LINE_LENGTH] = Result.y;
+				}
+			}
+		}
+
+		GroupMemoryBarrierWithGroupSync();
+
+		mat_f_real.Load(FBuffer, 256 * 		/*real&complex*/2 * /*sizeof(float16_t)*/2, 16 * /*sizeof(float16_t)*/2, false);
+		mat_f_imag.Load(FBuffer, 256 * /*real&complex&real*/3 * /*sizeof(float16_t)*/2, 16 * /*sizeof(float16_t)*/2, false);
+		// mat_f_real.Load(groupMatF, 0, 16, false);
+		// mat_f_imag.Load(groupMatF, 256, 16, false);
 
 		// SIGNAL_NUM: (SCAN_LINE_LENGTH / 256) INPUT_SIGNAL_LENGTH: 256 OUTPUT_SIGNAL_LENGTH: SCAN_LINE_LENGTH
 		[unroll]
 		for (int i = 0; i < 2048 / SCAN_LINE_LENGTH; i++){
-			mat_x.Load(groupMatInput_x, 0, 16, false);
-			mat_y.Load(groupMatInput_x, 0, 16, false);
+			mat_x.Load(groupMatOutput, 2 * i + WaveIndex * 64, 256, false);
+			mat_y.Load(groupMatOutput, 2 * i + WaveIndex * 64 + SCAN_LINE_LENGTH, 256, false);
 
-			result_Aa.MultiplyAccumulate(mat_f_real, mat_x);
-			result_Ba.MultiplyAccumulate(mat_f_imag, mat_x);
-			result_Ab.MultiplyAccumulate(mat_f_real, mat_y);
-			result_Bb.MultiplyAccumulate(mat_f_imag, mat_y);
+			result_Ab.Multiply(mat_f_real, mat_y);
+			result_Bb.Multiply(mat_f_imag, mat_y);
 
-			result_Bb.ScalarMultiply((float16_t)-1);
-			result_Aa.Add(result_Bb);
-			result_Ba.Add(result_Ab);
+			result_Bb.ScalarMultiply((float16_t)(-1));
+			result_Bb.MultiplyAccumulate(mat_f_real, mat_x);
+			result_Ab.MultiplyAccumulate(mat_f_imag, mat_x);
 
-			result_Aa.Store(groupMatOutput_x, 0, 16, false);
-			result_Ba.Store(groupMatOutput_x, 0, 16, false);
+			result_Bb.Store(groupMatInput, 2 * i + WaveIndex * 64, 256, false);// real
+			result_Ab.Store(groupMatInput, 2 * i + WaveIndex * 64 + 4096, 256, false);// imag
 		}
 	}
 	
@@ -454,7 +508,7 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
 
 	// write result back to local buffer
 	for (int i = 0; i < RADIX; i++){
-		Local[i] = ;
+		Local[i] = Complex(groupMatInput[IdxS * groupsize + i], groupMatInput[IdxS * groupsize + i + 4096]);
 	}
 }
 
@@ -488,7 +542,7 @@ void GroupSharedTCFFT(in bool bIsForward, inout Complex LocalBuffer[2][RADIX], i
 
 
 
-groupshared float SharedReal[ 2 * SCAN_LINE_LENGTH ];
+// groupshared float16_t SharedReal[ 2 * SCAN_LINE_LENGTH ];
 #define NUM_BANKS 32
 
 void CopyLocalXToGroupShared(in Complex Local[RADIX], in uint Head, in uint Stride, in uint BankSkip)
@@ -498,7 +552,7 @@ void CopyLocalXToGroupShared(in Complex Local[RADIX], in uint Head, in uint Stri
 	for (uint r = 0; r < RADIX; ++r, i += Stride)
 	{
 		uint j = i + (i / NUM_BANKS) * BankSkip;
-		SharedReal[ j ] = Local[ r ].x;
+		groupMatInput[ j ] = Local[ r ].x;
 	}
 }
 
@@ -509,7 +563,7 @@ void CopyLocalYToGroupShared(in Complex Local[RADIX], in uint Head, in uint Stri
     for (uint r = 0; r < RADIX; ++r, i += Stride)
 	{
 		uint j = i + (i / NUM_BANKS) * BankSkip;
-		SharedReal[ j ] = Local[ r ].y;
+		groupMatInput[ j ] = Local[ r ].y;
 	}
 }
 
@@ -537,7 +591,7 @@ void SplitTwoForOne(inout Complex LocalBuffer[RADIX], in uint Head, in uint Stri
 		{
 			uint NmK = (K > 0) ? ( N - K) : 0;
 
-			float Tmp = SharedReal[NmK]; 
+			float Tmp = groupMatInput[NmK]; 
 		
 			Tmp *= (K > Non2)? -1 : 1;
 
@@ -545,7 +599,7 @@ void SplitTwoForOne(inout Complex LocalBuffer[RADIX], in uint Head, in uint Stri
 		}
 	}
 
-	if (Head == 0 ) LocalBuffer[0].x = 2.f * SharedReal[0];
+	if (Head == 0 ) LocalBuffer[0].x = 2.f * groupMatInput[0];
 
 	GroupMemoryBarrierWithGroupSync();
 
@@ -559,7 +613,7 @@ void SplitTwoForOne(inout Complex LocalBuffer[RADIX], in uint Head, in uint Stri
 		{
 			uint NmK = (K > 0) ? ( N - K) : 0;
 			
-			float Tmp = -SharedReal[NmK];
+			float Tmp = -groupMatInput[NmK];
 		
 			Tmp *= (K < Non2)? 1 : -1;
 
@@ -568,7 +622,7 @@ void SplitTwoForOne(inout Complex LocalBuffer[RADIX], in uint Head, in uint Stri
 		}
 	}
 
-	if (Head == 0) LocalBuffer[0].y = 2.f * SharedReal[0];
+	if (Head == 0) LocalBuffer[0].y = 2.f * groupMatInput[0];
  
 	{
 		[unroll] for (uint i = 0; i < RADIX; ++i) LocalBuffer[i] *= 0.5;
@@ -592,7 +646,7 @@ void SplitTwoForOne(inout Complex LocalBuffer[2][RADIX], in uint Head, in uint S
 	SplitTwoForOne(LocalBuffer[ 1 ], Head, Stride, ArrayLength);
 	
 }
-void WriteTwoForOneFrequencyData(in bool bIsHorizontal, inout ComplexMult LocalBuffer[2][RADIX], uint ScanIdx, uint Loc, uint Stride, uint N)
+void WriteTwoForOneFrequencyData(in bool bIsHorizontal, inout Complex LocalBuffer[2][RADIX], uint ScanIdx, uint Loc, uint Stride, uint N)
 {
     RWTexture2D<float4> DstTexture = ResourceDescriptorHeap[OutputTextureOffset];
 
@@ -722,26 +776,26 @@ void MergeTwoForOne(inout Complex LocalBuffer[RADIX], in uint Head, in uint Stri
 		{
 			uint NmK = (K > 0) ? (N - K) : 0 ;
 	
-			float Tmp = SharedReal[ NmK ]; 
+			float Tmp = groupMatInput[ NmK ]; 
 			Tmp *= (K > Non2) ? -1 : 1;
 		
 			LocalBuffer[i].x += Tmp;
 		}
 	}
 	
-	Complex FirstElement  = Complex(0, SharedReal[0]);
-	Complex MiddleElement = Complex(0, SharedReal[Non2]);
+	Complex FirstElement  = Complex(0, groupMatInput[0]);
+	Complex MiddleElement = Complex(0, groupMatInput[Non2]);
 
 	GroupMemoryBarrierWithGroupSync();
 
 	[unroll] for (uint r = 0, i = Head; r < RADIX; ++r, i += Stride)
 	{
-		SharedReal[ i ] = TmpX[ r ];
+		groupMatInput[ i ] = TmpX[ r ];
 	}
 
 	GroupMemoryBarrierWithGroupSync();
-	FirstElement.x  = SharedReal[0];
-	MiddleElement.x = SharedReal[Non2];
+	FirstElement.x  = groupMatInput[0];
+	MiddleElement.x = groupMatInput[Non2];
 
 	{
 		[unroll]
@@ -749,7 +803,7 @@ void MergeTwoForOne(inout Complex LocalBuffer[RADIX], in uint Head, in uint Stri
 		{
 			uint NmK = (K > 0) ? (N - K) : 0 ;
 			
-			float Tmp = SharedReal[ NmK ]; 
+			float Tmp = groupMatInput[ NmK ]; 
 			Tmp *= (K > Non2) ? -1 : 1;
 		
 			LocalBuffer[i].y += Tmp;

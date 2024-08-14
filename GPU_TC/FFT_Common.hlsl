@@ -392,7 +392,10 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
 		const int rowIndex = IdxS / finalMergeNum;
 		[unroll]
 		for (int j = 0; j < RADIX; j++){// TODO: remove bank conflict
-			Complex TwiddleScaled = Complex(cos(-2.f * PI * j * rowIndex / (256.f)), sin(-2.f * PI * j * rowIndex / (256.f)));
+			float expon = -2.f * PI * j * rowIndex / (256.f);
+			if (!bIsForward)
+				expon *= -1.f;
+			Complex TwiddleScaled = Complex(cos(expon), sin(expon));
 			Complex ElementWiseResult = ComplexMult(TwiddleScaled, Local[j]);
 			groupMatInput[RADIX * IdxS + j] = ElementWiseResult.x;
 			groupMatInput[RADIX * IdxS + j + SCAN_LINE_LENGTH] = ElementWiseResult.y;
@@ -472,7 +475,11 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
 					const Complex v = Complex(groupMatOutput[FlattenedIndex], groupMatOutput[FlattenedIndex + SCAN_LINE_LENGTH]);
 					const uint colIndex = FlattenedIndex % 256;
 					const uint rowIndex = FlattenedIndex / 256;
-					const Complex Twiddle = Complex(cos(-2.f * PI * colIndex * rowIndex / float16_t(SCAN_LINE_LENGTH)), sin(-2.f * PI * colIndex * rowIndex / float16_t(SCAN_LINE_LENGTH)));
+					float expon = -2.f * PI * colIndex * rowIndex / float16_t(SCAN_LINE_LENGTH);
+					if (!bIsForward){
+						expon *= -1.f;
+					}
+					const Complex Twiddle = Complex(cos(expon), sin(expon));
 					const Complex Result = ComplexMult(v, Twiddle);
 					groupMatOutput[FlattenedIndex] = Result.x;
 					groupMatOutput[FlattenedIndex + SCAN_LINE_LENGTH] = Result.y;

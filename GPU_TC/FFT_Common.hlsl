@@ -362,7 +362,7 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
 #else
     #error "Only Support Signal Length of 1024 or 2048!"
 #endif
-	ByteAddressBuffer FBuffer = ResourceDescriptorHeap[FBufferOffset];
+	ByteAddressBuffer FBuffer = bIsForward ? ResourceDescriptorHeap[FBufferOffset] : ResourceDescriptorHeap[FBufferInverseOffset];
 
 	const uint WaveIndex = WaveReadLaneFirst(IdxS / WAVE_SIZE);// 2 waves for 1024 / 4 waves for 2048
 	const uint groupsize = SCAN_LINE_LENGTH / RADIX;

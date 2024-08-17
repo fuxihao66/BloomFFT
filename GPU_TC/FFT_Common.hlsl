@@ -516,8 +516,11 @@ void GroupSharedTCFFT(in const bool bIsForward, inout Complex Local[RADIX], in c
 
 	// write result back to local buffer
 	for (int i = 0; i < RADIX; i++){
-		Local[i] = Complex(groupMatInput[IdxS * groupsize + i], groupMatInput[IdxS * groupsize + i + 4096]);
+		Local[i] = Complex(groupMatInput[i * groupsize + IdxS], groupMatInput[i * groupsize + IdxS + 4096]);
 	}
+
+	GroupMemoryBarrierWithGroupSync();
+
 }
 
 

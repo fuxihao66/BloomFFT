@@ -170,12 +170,6 @@ void GSConvolutionWithTextureCS(uint3 GroupID : SV_GroupID, uint3 GroupThreadID 
 	// Here we multiply against the transform of a physical space kernel, but special case the 
 	// thread groups that are working on  Green and Alpha
 
-
-	ComplexMultTexture( bUseAlpha, bIsGAGroup,  Filter, LocalBuffer);
-
-	// The input kernel might not have been normalized.  
-	// This applies the correct normalization to local buffer,
-
 	{
 		float2 Norm[2];
 		GetKernelSum(FilterTexture, bIsHorizontal, NumScanlines, Norm);
@@ -205,6 +199,14 @@ void GSConvolutionWithTextureCS(uint3 GroupID : SV_GroupID, uint3 GroupThreadID 
 			}
 		}
 	}
+
+
+	ComplexMultTexture( bUseAlpha, bIsGAGroup,  Filter, LocalBuffer);
+
+	// The input kernel might not have been normalized.  
+	// This applies the correct normalization to local buffer,
+
+	
 
 	// ---- Transform back ---- //
 

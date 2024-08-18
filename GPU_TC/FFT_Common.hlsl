@@ -534,7 +534,7 @@ void GroupSharedTCFFT(in bool bIsForward, inout Complex LocalBuffer[2][RADIX], i
 	
 	if (bIsForward)
 	{
-		Scale(LocalBuffer, ForwardScale(ArrayLength));
+		// Scale(LocalBuffer, ForwardScale(ArrayLength));
 	}
 	else
 	{

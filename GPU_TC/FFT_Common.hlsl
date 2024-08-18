@@ -111,13 +111,15 @@ void CopyDataSrcWindowToLocal(inout Complex LocalBuffer[2][RADIX], bool bIsHoriz
 		}
 	}
 }
+#ifndef NORMALIZE_ORDER
 #define NORMALIZE_ORDER 1
+#endif
 float ForwardScale(uint ArrayLength)
 {	
 #if NORMALIZE_ORDER  == 1
 	return float(1); 
 #else
-	return (float(1) / float(ArrayLength) );
+	return (float(32) / float(ArrayLength) );
 #endif
 }
 
@@ -126,7 +128,7 @@ float InverseScale(uint ArrayLength)
 #if NORMALIZE_ORDER == 1
 	return ( float(1) / float(ArrayLength) );
 #else
-	return float(1);
+	return float(1) / 32.f;
 #endif
 }
 
@@ -534,7 +536,11 @@ void GroupSharedTCFFT(in bool bIsForward, inout Complex LocalBuffer[2][RADIX], i
 	
 	if (bIsForward)
 	{
-		// Scale(LocalBuffer, ForwardScale(ArrayLength));
+#if NORMALIZE_ORDER == 1
+
+#else
+		Scale(LocalBuffer, ForwardScale(ArrayLength));
+#endif
 	}
 	else
 	{

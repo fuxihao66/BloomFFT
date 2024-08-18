@@ -14,6 +14,9 @@ cbuffer cb0 : register(b0)
 	uint FBufferOffset;
 	uint FBufferInverseOffset;
 };
+
+#define NORMALIZE_ORDER 2
+
 #include "FFT_Common.hlsl"
 
 #define NUMTHREADSX ( SCAN_LINE_LENGTH / RADIX )

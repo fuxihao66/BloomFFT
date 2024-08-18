@@ -1,5 +1,4 @@
 // #define SCAN_LINE_LENGTH
-#define WAVE_MATRIX_DIM 16
 #define WAVE_SIZE 32
 #ifndef SCAN_LINE_LENGTH
     #define SCAN_LINE_LENGTH 2048
@@ -23,8 +22,6 @@ cbuffer cb0 : register(b0)
 // 需要用preview版本的dxc
 // 不能链接dxil.dll 还是说要用别的版本的dxil
 // 用最新的release dxil.dll 会报错误？
-
-// #define TILE_SIZE 16
 
 // // Shared Memory
 // groupshared float16_t groupMatInput_x[TILE_SIZE * TILE_SIZE];
@@ -73,9 +70,8 @@ void ModifyInput(inout Complex LocalBuffer[2][RADIX])
 }
 #define STRIDE ( SCAN_LINE_LENGTH / RADIX )
 
-// every thread deals with 16
 [wavesize(WAVE_SIZE)]
-[numthreads(SCAN_LINE_LENGTH / 16, 1, 1)]
+[numthreads(SCAN_LINE_LENGTH / RADIX, 1, 1)]
 void CSMain(
     uint2 groupTheadId : SV_GroupThreadID,
     uint3 groupId : SV_GroupID,

@@ -1,4 +1,3 @@
-#define WAVE_MATRIX_DIM 16
 #define WAVE_SIZE 32
 #ifndef SCAN_LINE_LENGTH
     #define SCAN_LINE_LENGTH 2048

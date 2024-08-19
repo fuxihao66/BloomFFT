@@ -16,7 +16,9 @@ cbuffer cb0 : register(b0)
 
 #define NORMALIZE_ORDER 2
 
-#include "FFT_Common.hlsl"
+// #include "FFT_Common.hlsl"
+#include "FFT_Common_Radix8.hlsl"
+// #include "FFT_Common_Radix8_ref.hlsl"
 
 #define NUMTHREADSX ( SCAN_LINE_LENGTH / RADIX )
 #define STRIDE ( SCAN_LINE_LENGTH / RADIX )

@@ -17,7 +17,9 @@ cbuffer cb0 : register(b0)
 	uint FBufferOffset;
 	uint FBufferInverseOffset;
 };
-#include "FFT_Common.hlsl"
+// #include "FFT_Common.hlsl"
+#include "FFT_Common_Radix8.hlsl"
+// #include "FFT_Common_Radix8_ref.hlsl"
 
 // 需要用preview版本的dxc
 // 不能链接dxil.dll 还是说要用别的版本的dxil
